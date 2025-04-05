@@ -1,4 +1,4 @@
-[🚀 **Feeling Lazy? Just Click Here for the Live Demo!** 🚀](https://digitvision-aasheik.streamlit.app/)
+[🚀 **Feeling Lazy? Just Click Here for the Live Demo!** 🚀](https://digitvision-aasheik.streamlit.app/){:target="_blank"}
 
 # DigitVision: Analog Neural Network Explorer
 
