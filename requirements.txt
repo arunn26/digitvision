@@ -1,7 +1,7 @@
-torch
-torchvision
+streamlit
+streamlit-drawable-canvas
 numpy
 matplotlib
-streamlit
-pillow
-streamlit-drawable-canvas
+Pillow
+torch
+torchvision
