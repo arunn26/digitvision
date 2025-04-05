@@ -16,7 +16,7 @@ DigitVision is a Streamlit-based web application that lets you draw digits (0–
 
 ## 🚀 Live Demo
 
-> _Coming soon: Deployment on [Streamlit Cloud](https://streamlit.io/cloud)
+> Deployment on https://aasheik.streamlit.app/
 ---
 
 ## 📁 Project Structure
