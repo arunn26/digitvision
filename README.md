@@ -1,4 +1,4 @@
-[🚀 **Feeling Lazy? Just Click Here for the Live Demo!** 🚀](https://digitvision-aasheik.streamlit.app/){:target="_blank"}
+<a href="https://digitvision-aasheik.streamlit.app/" target="_blank">🚀 <strong>Feeling Lazy? Just Click Here for the Live Demo!</strong> 🚀</a>
 
 # DigitVision: Analog Neural Network Explorer
 
