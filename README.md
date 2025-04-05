@@ -112,10 +112,6 @@ Weights and metrics (`model_weights.npz`, `training_metrics.npz`) auto-save for 
 - **Advanced Models:** Play around with deeper and smarter architectures.
 - **Speed Boosts:** Performance improvements for faster inference.
 
-## License
-
-Distributed under the [MIT License](LICENSE).
-
 ## Acknowledgments
 
 - MNIST dataset by [Yann LeCun](http://yann.lecun.com/exdb/mnist/).
