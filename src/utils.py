@@ -1,9 +1,11 @@
+# src/utils.py
+
 import matplotlib.pyplot as plt
 
 def plot_metrics(train_losses, val_losses, train_accuracies, val_accuracies):
     """Plots training and validation loss/accuracy metrics."""
     epochs = range(1, len(train_losses) + 1)
-    
+
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
     
     # Plot Loss

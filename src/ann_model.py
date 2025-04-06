@@ -1,7 +1,10 @@
+# File: src/ann_model.py
 import numpy as np
 
 def pixels_to_voltages(pixels, min_voltage=-5.0, max_voltage=5.0):
-    """Converts pixel values (normalized 0-1) to voltage range."""
+    """
+    Converts pixel values [0..1] into a voltage range [min_voltage..max_voltage].
+    """
     return pixels * (max_voltage - min_voltage) + min_voltage
 
 def relu(x):
@@ -11,6 +14,9 @@ def relu_derivative(x):
     return (x > 0).astype(float)
 
 def sigmoid(x):
+    """
+    Numerically-stable sigmoid.
+    """
     pos_mask = (x >= 0)
     neg_mask = (x < 0)
     z = np.zeros_like(x)
@@ -30,7 +36,7 @@ class ImprovedAnalogNeuralNetwork:
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        # Weight initialization using uniform distribution based on layer sizes
+        # Weight initialization
         limit1 = np.sqrt(6 / (input_size + hidden_size))
         self.Gm1 = np.random.uniform(-limit1, limit1, (hidden_size, input_size))
         self.b1 = np.zeros(hidden_size)
@@ -40,6 +46,9 @@ class ImprovedAnalogNeuralNetwork:
         self.b2 = np.zeros(output_size)
 
     def forward(self, X_voltages):
+        """
+        Forward pass: input -> hidden (ReLU) -> output (Sigmoid)
+        """
         self.z1 = np.dot(self.Gm1, X_voltages) + self.b1
         self.a1 = relu(self.z1)
         self.z2 = np.dot(self.Gm2, self.a1) + self.b2
@@ -47,6 +56,9 @@ class ImprovedAnalogNeuralNetwork:
         return self.a2
 
     def backward(self, X_voltages, y_onehot, output, learning_rate=0.001):
+        """
+        Backpropagation: compute gradients and update weights/biases.
+        """
         error = output - y_onehot
         delta2 = error * sigmoid_derivative(self.z2)
         dGm2 = np.outer(delta2, self.a1)
@@ -55,12 +67,16 @@ class ImprovedAnalogNeuralNetwork:
         delta1 = error_hidden * relu_derivative(self.z1)
         dGm1 = np.outer(delta1, X_voltages)
 
+        # Update
         self.Gm2 -= learning_rate * dGm2
         self.b2 -= learning_rate * delta2
         self.Gm1 -= learning_rate * dGm1
         self.b1 -= learning_rate * delta1
 
     def train(self, train_loader, val_loader, epochs=50, learning_rate=0.001, log_callback=None):
+        """
+        Train the network for a given number of epochs, returning loss & accuracy history.
+        """
         train_losses = []
         val_losses = []
         train_accuracies = []
@@ -90,6 +106,7 @@ class ImprovedAnalogNeuralNetwork:
             avg_train_loss = total_train_loss / len(train_loader.dataset)
             train_accuracy = 100 * train_correct / train_total
 
+            # Validation loop
             total_val_loss = 0
             val_correct = 0
             val_total = 0
@@ -116,9 +133,11 @@ class ImprovedAnalogNeuralNetwork:
             train_accuracies.append(train_accuracy)
             val_accuracies.append(val_accuracy)
 
-            log_msg = (f"Epoch {epoch+1}/{epochs}, "
-                       f"Train Loss: {avg_train_loss:.4f}, Train Acc: {train_accuracy:.2f}%, "
-                       f"Val Loss: {avg_val_loss:.4f}, Val Acc: {val_accuracy:.2f}%")
+            log_msg = (
+                f"Epoch {epoch+1}/{epochs}, "
+                f"Train Loss: {avg_train_loss:.4f}, Train Acc: {train_accuracy:.2f}%, "
+                f"Val Loss: {avg_val_loss:.4f}, Val Acc: {val_accuracy:.2f}%"
+            )
             print(log_msg)
             if log_callback:
                 log_callback(log_msg)
@@ -126,31 +145,43 @@ class ImprovedAnalogNeuralNetwork:
         return train_losses, val_losses, train_accuracies, val_accuracies
 
     def predict(self, X_voltages):
+        """
+        Single-sample prediction returning the argmax of the output layer.
+        """
         output = self.forward(X_voltages)
         return np.argmax(output)
 
     def evaluate(self, test_loader):
+        """
+        Evaluate the model on a test set loader. Returns accuracy percentage.
+        """
         correct = 0
         total = 0
         for images, labels in test_loader:
             images = images.view(-1, 28*28).numpy()
             labels = labels.numpy()
+
             for X_pixels, label in zip(images, labels):
                 X_voltages = pixels_to_voltages(X_pixels)
                 if self.predict(X_voltages) == label:
                     correct += 1
                 total += 1
+
         accuracy = 100 * correct / total
         print(f"Test Accuracy: {accuracy:.2f}%")
         return accuracy
 
     def save(self, file_path):
-        """Saves model weights to a file."""
+        """
+        Saves model weights to a .npz file.
+        """
         np.savez(file_path, Gm1=self.Gm1, b1=self.b1, Gm2=self.Gm2, b2=self.b2)
         print(f"Model saved to {file_path}")
 
     def load(self, file_path):
-        """Loads model weights from a file."""
+        """
+        Loads model weights from a .npz file.
+        """
         data = np.load(file_path)
         self.Gm1 = data['Gm1']
         self.b1 = data['b1']
