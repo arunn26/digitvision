@@ -1,0 +1,575 @@
+// File: frontend/draw_canvas.py
+import streamlit as st
+from streamlit_drawable_canvas import st_canvas
+from PIL import Image
+import numpy as np
+from src.config import CANVAS_SIZE
+
+
+def draw_canvas(key="canvas", stroke_width=15):
+    """
+    Create a drawable canvas with a light grid background.
+    Returns a canvas_result object with .image_data
+    """
+    return st_canvas(
+        fill_color="rgba(255, 255, 255, 1)",  # white background
+        stroke_width=stroke_width,
+        stroke_color="#000000",               # black ink
+        background_color="#FFFFFF",           # white background
+        height=CANVAS_SIZE,
+        width=CANVAS_SIZE,
+        drawing_mode="freedraw",
+        key=key,
+        update_streamlit=True,
+        display_toolbar=True,
+    )
+
+
+def preprocess_canvas_image(canvas_image_data):
+    """
+    Converts canvas RGBA to 28x28 grayscale, normalizes to 0–1.
+    Inverts color (black ink on white bg becomes white-on-black).
+    """
+    img = Image.fromarray((255 - canvas_image_data[:, :, 0]).astype(np.uint8))
+    img = img.resize((28, 28)).convert("L")
+    return np.array(img).astype(np.float32) / 255.0
+
+
+// File: frontend/app.py
+import os
+os.environ["STREAMLIT_WATCHED_FILES"] = "[]"
+
+import sys
+import random
+import streamlit as st
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from src.ann_model import ImprovedAnalogNeuralNetwork, pixels_to_voltages
+from src.data_loader import get_data_loaders
+from src.utils import plot_metrics
+from frontend.draw_canvas import draw_canvas, preprocess_canvas_image
+
+MODEL_PATH = "models/model_weights.npz"
+METRICS_PATH = "models/training_metrics.npz"
+
+st.set_page_config(page_title="DigitVision", layout="wide")
+
+if "train_metrics" not in st.session_state:
+    st.session_state.train_metrics = None
+if "test_accuracy" not in st.session_state:
+    st.session_state.test_accuracy = None
+if "epochs_trained" not in st.session_state:
+    st.session_state.epochs_trained = None
+
+train_loader, val_loader, test_loader = get_data_loaders(batch_size=64)
+ann = ImprovedAnalogNeuralNetwork(input_size=784, hidden_size=100, output_size=10)
+
+if os.path.exists(MODEL_PATH):
+    ann.load(MODEL_PATH)
+
+    if os.path.exists(METRICS_PATH):
+        metrics_data = np.load(METRICS_PATH)
+        st.session_state.train_metrics = {
+            "train_losses": metrics_data["train_losses"].tolist(),
+            "val_losses": metrics_data["val_losses"].tolist(),
+            "train_accuracies": metrics_data["train_accuracies"].tolist(),
+            "val_accuracies": metrics_data["val_accuracies"].tolist()
+        }
+        if "test_accuracy" in metrics_data:
+            st.session_state.test_accuracy = float(metrics_data["test_accuracy"])
+        st.session_state.epochs_trained = len(metrics_data["train_losses"])
+    else:
+        st.warning("Training metrics file not found.")
+else:
+    st.warning("Trained model not found. Please train it first.")
+
+st.markdown("""
+<style>
+.main {
+    background-color: #f0f2f6;
+    padding: 1rem;
+}
+.stApp {
+    max-width: 100%;
+    margin: 0 auto;
+}
+h1, h2, h3 {
+    color: #2e7bcf;
+}
+.stButton>button {
+    background-color: #2e7bcf;
+    color: white;
+    border: none;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.sidebar.header("Navigation")
+page_choice = st.sidebar.radio(
+    "Go to:",
+    ["Home", "Sample Prediction", "Draw Digit", "Metrics & Weights"]
+)
+
+st.title("DigitVision: Single-Page Explorer")
+
+if page_choice == "Home":
+    st.header("Welcome to DigitVision")
+    st.write("""
+    **Overview**  
+    1. Home – Intro and MNIST examples  
+    2. Sample Prediction – Try the model on random digits  
+    3. Draw Digit – Draw your own digit and predict  
+    4. Metrics & Weights – View training performance
+    """)
+    st.image(
+        "https://upload.wikimedia.org/wikipedia/commons/2/27/MnistExamples.png",
+        caption="MNIST Examples",
+        use_container_width=True,
+    )
+
+elif page_choice == "Sample Prediction":
+    st.header("Sample Prediction from MNIST Data Set")
+    if st.button("Get a Random Sample"):
+        images, labels = next(iter(test_loader))
+        idx = random.randint(0, len(labels) - 1)
+        image = images[idx].view(-1, 28 * 28).numpy().flatten()
+        true_label = labels[idx].item()
+
+        X_voltages = pixels_to_voltages(image)
+        predicted_label = ann.predict(X_voltages)
+
+        st.write(f"**True Label:** {true_label}")
+        st.write(f"**Predicted Label:** {predicted_label}")
+
+        image_28 = image.reshape(28, 28)
+        fig, ax = plt.subplots()
+        ax.imshow(image_28, cmap="gray")
+        ax.set_title("Random MNIST Sample")
+        ax.axis("off")
+        st.pyplot(fig)
+
+elif page_choice == "Draw Digit":
+    st.header("Draw a Digit")
+
+    if "canvas_key" not in st.session_state:
+        st.session_state.canvas_key = "canvas_digit"
+
+    col_left, col_right = st.columns([1.5, 1])
+
+    with col_left:
+        canvas_result = draw_canvas(
+            key=st.session_state.canvas_key,
+            stroke_width=15,
+        )
+
+    with col_right:
+        st.markdown("### Preview")
+        if canvas_result.image_data is not None:
+            img_np = preprocess_canvas_image(canvas_result.image_data)
+            st.image(img_np, width=100, clamp=True)
+        else:
+            st.write("Draw something to see preview.")
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Clear"):
+            st.session_state.canvas_key = (
+                "canvas_digit_2" if st.session_state.canvas_key == "canvas_digit" else "canvas_digit"
+            )
+            st.rerun()
+
+    with col2:
+        if st.button("Predict"):
+            if canvas_result.image_data is not None:
+                img_np = preprocess_canvas_image(canvas_result.image_data)
+                if np.sum(img_np) < 10:
+                    st.warning("Please draw a digit before predicting.")
+                else:
+                    st.image(img_np, width=100, caption="28x28 Input", clamp=True)
+                    X_voltages = pixels_to_voltages(img_np.flatten())
+                    output_probs = ann.forward(X_voltages)
+                    predicted_digit = int(np.argmax(output_probs))
+                    st.markdown(f"**Predicted Digit:** {predicted_digit}")
+
+                    fig, ax = plt.subplots()
+                    ax.bar(range(10), output_probs)
+                    ax.set_xticks(range(10))
+                    ax.set_xlabel("Digit")
+                    ax.set_ylabel("Confidence")
+                    st.pyplot(fig)
+            else:
+                st.warning("Canvas is empty. Please draw a digit first.")
+
+elif page_choice == "Metrics & Weights":
+    
+
+    if st.session_state.train_metrics:
+        tm = st.session_state.train_metrics
+        epochs = st.session_state.epochs_trained
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Epoch Stats")
+            st.write(f"- Train Loss: `{tm['train_losses'][-1]:.4f}`")
+            st.write(f"- Validation Loss: `{tm['val_losses'][-1]:.4f}`")
+            st.write(f"- Train Accuracy: `{tm['train_accuracies'][-1]:.2f}%`")
+            st.write(f"- Validation Accuracy: `{tm['val_accuracies'][-1]:.2f}%`")
+
+        with col2:
+            best_val_acc = max(tm["val_accuracies"])
+            best_epoch = tm["val_accuracies"].index(best_val_acc) + 1
+            st.subheader("Best Model Performance")
+            st.write(f"Best Validation Accuracy: `{best_val_acc:.2f}%`")
+            st.write(f"Achieved at Epoch: `{best_epoch}`")
+
+        st.markdown("### Accuracy & Loss Curves")
+        fig = plot_metrics(
+            tm["train_losses"],
+            tm["val_losses"],
+            tm["train_accuracies"],
+            tm["val_accuracies"]
+        )
+        st.pyplot(fig)
+    else:
+        st.info("No training metrics available. Train the model first.")
+
+    st.subheader("Gm1 & Gm2 Weights")
+    if os.path.exists(MODEL_PATH):
+        
+        with st.expander("Gm1"):
+            st.write(ann.Gm1[:50, :50])
+        with st.expander("Gm2"):
+            st.write(ann.Gm2[:50, :50])
+    else:
+        st.warning("Model not found. Please train and save first.")
+
+
+// File: src/config.py
+# File: src/config.py
+
+CANVAS_SIZE = 280
+IMAGE_SIZE = 28
+DEFAULT_HIDDEN_SIZE = 100
+DEFAULT_EPOCHS = 500
+DEFAULT_LR = 0.001
+
+MODEL_PATH = "models/model_weights.npz"
+METRICS_PATH = "models/training_metrics.npz"
+
+
+// File: src/data_loader.py
+# File: src/data_loader.py
+
+import torch
+import torchvision
+import torchvision.transforms as transforms
+
+def load_mnist():
+    """Downloads and loads the MNIST dataset."""
+    transform = transforms.Compose([transforms.ToTensor()])
+    trainset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    testset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+    return trainset, testset
+
+def get_data_loaders(batch_size=64, val_split=0.2):
+    """Splits the training set into training and validation loaders."""
+    trainset, testset = load_mnist()
+    train_size = int((1 - val_split) * len(trainset))
+    val_size = len(trainset) - train_size
+    train_subset, val_subset = torch.utils.data.random_split(trainset, [train_size, val_size])
+    
+    train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
+    
+    return train_loader, val_loader, test_loader
+
+
+// File: src/__init__.py
+
+
+// File: src/utils.py
+# src/utils.py
+
+import matplotlib.pyplot as plt
+
+def plot_metrics(train_losses, val_losses, train_accuracies, val_accuracies):
+    """Plots training and validation loss/accuracy metrics."""
+    epochs = range(1, len(train_losses) + 1)
+
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Plot Loss
+    axs[0].plot(epochs, train_losses, 'b-', label='Train Loss')
+    axs[0].plot(epochs, val_losses, 'r-', label='Validation Loss')
+    axs[0].set_title('Loss')
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('Loss')
+    axs[0].legend()
+    axs[0].grid(True)
+    
+    # Plot Accuracy
+    axs[1].plot(epochs, train_accuracies, 'b-', label='Train Accuracy')
+    axs[1].plot(epochs, val_accuracies, 'r-', label='Validation Accuracy')
+    axs[1].set_title('Accuracy (%)')
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('Accuracy')
+    axs[1].legend()
+    axs[1].grid(True)
+    
+    plt.tight_layout()
+    return fig
+
+
+// File: src/ann_model.py
+# File: src/ann_model.py
+import numpy as np
+
+def pixels_to_voltages(pixels, min_voltage=-5.0, max_voltage=5.0):
+    """
+    Converts pixel values [0..1] into a voltage range [min_voltage..max_voltage].
+    """
+    return pixels * (max_voltage - min_voltage) + min_voltage
+
+def relu(x):
+    return np.maximum(0, x)
+
+def relu_derivative(x):
+    return (x > 0).astype(float)
+
+def sigmoid(x):
+    """
+    Numerically-stable sigmoid.
+    """
+    pos_mask = (x >= 0)
+    neg_mask = (x < 0)
+    z = np.zeros_like(x)
+    z[pos_mask] = np.exp(-x[pos_mask])
+    z[neg_mask] = np.exp(x[neg_mask])
+    top = np.ones_like(x)
+    top[neg_mask] = z[neg_mask]
+    return top / (1 + z)
+
+def sigmoid_derivative(x):
+    s = sigmoid(x)
+    return s * (1 - s)
+
+class ImprovedAnalogNeuralNetwork:
+    def __init__(self, input_size, hidden_size, output_size):
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
+        # Weight initialization
+        limit1 = np.sqrt(6 / (input_size + hidden_size))
+        self.Gm1 = np.random.uniform(-limit1, limit1, (hidden_size, input_size))
+        self.b1 = np.zeros(hidden_size)
+
+        limit2 = np.sqrt(6 / (hidden_size + output_size))
+        self.Gm2 = np.random.uniform(-limit2, limit2, (output_size, hidden_size))
+        self.b2 = np.zeros(output_size)
+
+    def forward(self, X_voltages):
+        """
+        Forward pass: input -> hidden (ReLU) -> output (Sigmoid)
+        """
+        self.z1 = np.dot(self.Gm1, X_voltages) + self.b1
+        self.a1 = relu(self.z1)
+        self.z2 = np.dot(self.Gm2, self.a1) + self.b2
+        self.a2 = sigmoid(self.z2)
+        return self.a2
+
+    def backward(self, X_voltages, y_onehot, output, learning_rate=0.001):
+        """
+        Backpropagation: compute gradients and update weights/biases.
+        """
+        error = output - y_onehot
+        delta2 = error * sigmoid_derivative(self.z2)
+        dGm2 = np.outer(delta2, self.a1)
+
+        error_hidden = np.dot(self.Gm2.T, delta2)
+        delta1 = error_hidden * relu_derivative(self.z1)
+        dGm1 = np.outer(delta1, X_voltages)
+
+        # Update
+        self.Gm2 -= learning_rate * dGm2
+        self.b2 -= learning_rate * delta2
+        self.Gm1 -= learning_rate * dGm1
+        self.b1 -= learning_rate * delta1
+
+    def train(self, train_loader, val_loader, epochs=50, learning_rate=0.001, log_callback=None):
+        """
+        Train the network for a given number of epochs, returning loss & accuracy history.
+        """
+        train_losses = []
+        val_losses = []
+        train_accuracies = []
+        val_accuracies = []
+
+        for epoch in range(epochs):
+            total_train_loss = 0
+            train_correct = 0
+            train_total = 0
+
+            for images, labels in train_loader:
+                images = images.view(-1, 28*28).numpy()
+                labels_onehot = np.eye(self.output_size)[labels.numpy()]
+
+                for X_pixels, y_onehot in zip(images, labels_onehot):
+                    X_voltages = pixels_to_voltages(X_pixels)
+                    output = self.forward(X_voltages)
+                    loss = -np.sum(y_onehot * np.log(output + 1e-10))
+                    total_train_loss += loss
+
+                    self.backward(X_voltages, y_onehot, output, learning_rate=learning_rate)
+
+                    if np.argmax(output) == np.argmax(y_onehot):
+                        train_correct += 1
+                    train_total += 1
+
+            avg_train_loss = total_train_loss / len(train_loader.dataset)
+            train_accuracy = 100 * train_correct / train_total
+
+            # Validation loop
+            total_val_loss = 0
+            val_correct = 0
+            val_total = 0
+
+            for images, labels in val_loader:
+                images = images.view(-1, 28*28).numpy()
+                labels_onehot = np.eye(self.output_size)[labels.numpy()]
+
+                for X_pixels, y_onehot in zip(images, labels_onehot):
+                    X_voltages = pixels_to_voltages(X_pixels)
+                    output = self.forward(X_voltages)
+                    loss = -np.sum(y_onehot * np.log(output + 1e-10))
+                    total_val_loss += loss
+
+                    if np.argmax(output) == np.argmax(y_onehot):
+                        val_correct += 1
+                    val_total += 1
+
+            avg_val_loss = total_val_loss / len(val_loader.dataset)
+            val_accuracy = 100 * val_correct / val_total
+
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
+            train_accuracies.append(train_accuracy)
+            val_accuracies.append(val_accuracy)
+
+            log_msg = (
+                f"Epoch {epoch+1}/{epochs}, "
+                f"Train Loss: {avg_train_loss:.4f}, Train Acc: {train_accuracy:.2f}%, "
+                f"Val Loss: {avg_val_loss:.4f}, Val Acc: {val_accuracy:.2f}%"
+            )
+            print(log_msg)
+            if log_callback:
+                log_callback(log_msg)
+
+        return train_losses, val_losses, train_accuracies, val_accuracies
+
+    def predict(self, X_voltages):
+        """
+        Single-sample prediction returning the argmax of the output layer.
+        """
+        output = self.forward(X_voltages)
+        return np.argmax(output)
+
+    def evaluate(self, test_loader):
+        """
+        Evaluate the model on a test set loader. Returns accuracy percentage.
+        """
+        correct = 0
+        total = 0
+        for images, labels in test_loader:
+            images = images.view(-1, 28*28).numpy()
+            labels = labels.numpy()
+
+            for X_pixels, label in zip(images, labels):
+                X_voltages = pixels_to_voltages(X_pixels)
+                if self.predict(X_voltages) == label:
+                    correct += 1
+                total += 1
+
+        accuracy = 100 * correct / total
+        print(f"Test Accuracy: {accuracy:.2f}%")
+        return accuracy
+
+    def save(self, file_path):
+        """
+        Saves model weights to a .npz file.
+        """
+        np.savez(file_path, Gm1=self.Gm1, b1=self.b1, Gm2=self.Gm2, b2=self.b2)
+        print(f"Model saved to {file_path}")
+
+    def load(self, file_path):
+        """
+        Loads model weights from a .npz file.
+        """
+        data = np.load(file_path)
+        self.Gm1 = data['Gm1']
+        self.b1 = data['b1']
+        self.Gm2 = data['Gm2']
+        self.b2 = data['b2']
+        print(f"Model loaded from {file_path}")
+
+
+// File: src/train.py
+# File: src/train.py
+
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import numpy as np
+from src.data_loader import get_data_loaders
+from src.ann_model import ImprovedAnalogNeuralNetwork
+from src.utils import plot_metrics
+from src.config import MODEL_PATH, METRICS_PATH, DEFAULT_HIDDEN_SIZE, DEFAULT_EPOCHS, DEFAULT_LR
+
+def main():
+    # Create data loaders
+    train_loader, val_loader, test_loader = get_data_loaders(batch_size=64)
+
+    # Initialize model
+    ann = ImprovedAnalogNeuralNetwork(input_size=784, hidden_size=DEFAULT_HIDDEN_SIZE, output_size=10)
+
+    # Train the model
+    train_losses, val_losses, train_accuracies, val_accuracies = ann.train(
+        train_loader, val_loader,
+        epochs=DEFAULT_EPOCHS,
+        learning_rate=DEFAULT_LR
+    )
+
+    # Evaluate on test set
+    test_accuracy = ann.evaluate(test_loader)
+
+    # Save the trained model
+    if not os.path.exists("models"):
+        os.makedirs("models")
+    ann.save(MODEL_PATH)
+
+    # Save training metrics
+    np.savez(
+        METRICS_PATH,
+        train_losses=np.array(train_losses),
+        val_losses=np.array(val_losses),
+        train_accuracies=np.array(train_accuracies),
+        val_accuracies=np.array(val_accuracies),
+        test_accuracy=test_accuracy
+    )
+
+    # Optionally plot metrics
+    fig = plot_metrics(train_losses, val_losses, train_accuracies, val_accuracies)
+    fig.show()
+
+if __name__ == '__main__':
+    main()
+
+

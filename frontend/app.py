@@ -205,8 +205,8 @@ elif page_choice == "Metrics & Weights":
     if os.path.exists(MODEL_PATH):
         
         with st.expander("Gm1"):
-            st.write(ann.Gm1[:2, :5])
+            st.write(ann.Gm1[:50, :50])
         with st.expander("Gm2"):
-            st.write(ann.Gm2[:2, :5])
+            st.write(ann.Gm2[:50, :50])
     else:
         st.warning("Model not found. Please train and save first.")
